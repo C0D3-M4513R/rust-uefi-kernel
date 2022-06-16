@@ -1,0 +1,15 @@
+[package]
+name = "efi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+uefi = { version = "0.16.0", features = ["logger"] }
+#uefi-services = "0.13.0"
+x86_64 = {version="0.14.9",features=["inline_asm"]}
+bit_field = "0.10.1"
+lazy_static = {version="1.4.0",features=["spin_no_std"]}
+log = "0.4.16"
+log-impl = {path="../log-impl"}

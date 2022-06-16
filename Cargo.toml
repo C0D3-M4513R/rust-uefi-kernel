@@ -1,0 +1,3 @@
+[workspace]
+members=["log-impl","uefi-bin"]
+exclude=["normal"]
