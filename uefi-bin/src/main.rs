@@ -14,76 +14,63 @@ use core::ptr::null;
 use core::sync::atomic::{AtomicU64, Ordering};
 use uefi::prelude::*;
 use uefi::table::boot::MemoryType;
+use x86_64::structures::paging::PageTable;
 //use uefi_services::system_table;
 
 const MS_TO_NS:u64=1_000_000;
 
 mod efi;
-mod x64;
-mod rust_lang;
-
-pub static mut ST:Option<SystemTable<Boot>>=None;
+//mod x64;
+//mod rust_lang;
 
 #[entry]
 fn main(_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
-//    uefi_services::init(&mut system_table).unwrap();
-    unsafe {ST=Some(system_table);}
-    {
-        let mst=match unsafe{ST.as_mut()}{
-            None=>return Status::LOAD_ERROR,
-            Some(v)=>v,
-        };
+    uefi_services::init(&mut system_table).unwrap();
+    let system_table=unsafe{uefi_services::system_table().as_mut()};
+    //This logger impl will be taken over by uefi-services
+    #[cfg(any())]
+    if false{
+        let mst=system_table;
         let stde = mst.stderr();
         let stdo = mst.stdout();
         
         stdo.write_str("test").ok();
         
         log_impl::Logger::set_output(stdo);
-    }
-    unsafe{
-        static mut LOG:log_impl::Logger=log_impl::Logger::new();
-        (&mut LOG).init();
-        log::set_logger(&LOG).expect("Logger could not be set");
+        unsafe{
+            static mut LOG:log_impl::Logger=log_impl::Logger::new();
+            (&mut LOG).init();
+            log::set_logger(&LOG).expect("Logger could not be set");
+        }
     }
     
     log::info!("test");
     log::warn!("help");
     log::error!("halp");
     
-    if false{
-        log::error!("do a sanity check for atomics:");
-        
-        let a=AtomicU64::new(0);
-        let mut i=0;
-        loop{
-            let c = a.load(Ordering::Relaxed);
-            if u64::MAX == c{
-                break;
-            }
-            if i!=c>>12{
-                i=c>>12;
-                log::trace!("{}",i);
-            }
-            a.store(c+1,Ordering::Relaxed);
-        }
-        log::error!("sanity check comleted");
-    }
+   //x64::init();
     
-    {
-        match x64::paging::id_map(){
-            Err(_)=> { log::error!("Exiting"); return Status::LOAD_ERROR; },
-            Ok(_)=>{},
+    let map_file={
+        let elf_kernel_file=match efi::fs::load_kernel_file(){
+            Ok(v)=>v,
+            Err(_)=>return Status::ABORTED,
         };
-    }
-    log::error!("Set map. Proceeding to load map into C3");
-    x64::paging::load_page_table();
-    log::error!("Loaded map successfully?");
-    
-    let system_table=match unsafe{ST.as_ref()}{
-        None=>return Status::LOAD_ERROR,
-        Some(v)=>v,
+        let map_file=match efi::fs::elf::map_elf(elf_kernel_file,kernel_efi::KERNEL_ADDR){
+            Ok(v)=>v,
+            Err(_)=>return Status::ABORTED,
+        };
+        if let Err(e)=system_table.boot_services().free_pages(elf_kernel_file as *const [u8] as *const u8 as u64,elf_kernel_file.len()>>12){
+            return e.status();
+        }
+        map_file
     };
-
+    
+    log::error!("cr0: {:#x}",x86_64::registers::control::Cr0::read().bits());
+    log::error!("cr2: {:#x}",x86_64::registers::control::Cr2::read().as_u64());
+    let (frame,cr3)=x86_64::registers::control::Cr3::read();
+    let pt = frame.start_address().as_u64() as *mut u8 as *mut PageTable;
+    let pt_r=unsafe{&mut *pt};
+    let rpt=x86_64::structures::paging::RecursivePageTable::new(pt_r);
     
     {
         let efi_config=uefi::table::SystemTable::config_table(system_table);

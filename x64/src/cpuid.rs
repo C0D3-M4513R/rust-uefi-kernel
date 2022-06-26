@@ -1,18 +1,16 @@
 use core::arch::x86_64::{__cpuid, __cpuid_count, has_cpuid};
 use core::ops::{BitAnd, BitOr};
-use lazy_static::lazy_static;
 use x86_64::instructions::tables::lgdt;
 use x86_64::registers::rflags;
 use x86_64::registers::control::{Cr0, Cr0Flags, Efer, EferFlags};
 use x86_64::registers::rflags::RFlags;
-use bit_field::BitField;
 //This file copies asm code largely from there:
 //https://wiki.osdev.org/Setting_Up_Long_Mode
 //Thanks!
 
-static mut GDT:x86_64::structures::gdt::GlobalDescriptorTable = x86_64::structures::gdt::GlobalDescriptorTable::new();
+//static mut GDT:x86_64::structures::gdt::GlobalDescriptorTable = x86_64::structures::gdt::GlobalDescriptorTable::new();
 
-pub unsafe fn setup_long_mode(){
+unsafe fn setup_long_mode(){
 	if cpuid_enabled() && extended_mode_available() && long_mode_available(){
 		enable_a20();
 		Cr0::write(Cr0::read().bitand(Cr0Flags::PAGING));
@@ -40,7 +38,8 @@ unsafe fn extended_mode_available()->bool{
 }
 
 unsafe fn long_mode_available()->bool{
-	__cpuid(0x80000001).edx.get_bit(29)
+	let tmp=__cpuid(0x80000001).edx;
+	tmp&(1<<29)!=0
 }
 pub(super) unsafe fn enable_long_mode(){
 	Efer::write(Efer::read().bitor(EferFlags::LONG_MODE_ENABLE))
@@ -59,6 +58,7 @@ unsafe fn enable_a20(){
 }
 pub(super) fn pml5_avilable()->bool{
 	unsafe {
-		__cpuid(0x7).ecx.get_bit(16)
+		let tmp = __cpuid(0x7).ecx;
+		tmp>>16&1==1
 	}
 }

@@ -3,7 +3,7 @@ use uefi::table::boot::{MemoryDescriptor, MemoryType};
 
 pub fn get_mem() ->Option<(impl Iterator<Item=MemoryDescriptor>,u64)>{
 	log::info!("Trying to get Memory-Map");
-	let st=unsafe{crate::ST.as_ref()?};
+	let st=unsafe{uefi_services::system_table().as_ref()};
 	let boot=st.boot_services();
 	let mem_size = boot.memory_map_size();
 	log::trace!("Got Memory-Map size");

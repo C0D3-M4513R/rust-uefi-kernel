@@ -31,14 +31,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
  */
+use core::alloc::Layout;
 use core::iter::{Chain, Cloned, Copied, Cycle, Enumerate, Filter, FilterMap, FlatMap, Flatten, Fuse, FusedIterator, Inspect, Map, MapWhile, Peekable, Product, Rev, Scan, Skip, SkipWhile, StepBy, Sum, Take, TakeWhile, Zip};
 use core::marker::PhantomData;
 use core::ops::{Index, IndexMut};
 use core::sync::atomic::{AtomicPtr, compiler_fence, Ordering};
-use uefi::table::boot::{AllocateType, MemoryType};
 use x86_64::PhysAddr;
 use x86_64::structures::paging::{PageTableFlags, PageTableIndex};
-use crate::x64::paging::traits::{Level, LevelTable};
+use super::super::traits::{Level, LevelTable};
 use super::entry::PTEntry;
 
 const ENTRY_COUNT:usize=512;
@@ -60,35 +60,37 @@ pub struct PageTable<L:Level> {
 }
 
 impl<L:LevelTable> PageTable<L>{
+	pub(in super::super) fn new(pt:*mut x86_64::structures::paging::PageTable,phantom:PhantomData<L>) -> Self{
+		PageTable{
+			entries:AtomicPtr::new(pt as *mut [PTEntry;ENTRY_COUNT]),
+			phantom,
+		}
+	}
+	
 	#[inline]
 	pub(super) fn get_addr(&self)->*const (){
 		self.entries.load(Ordering::SeqCst) as *const [PTEntry;ENTRY_COUNT] as *const ()
 	}
-	pub(super) fn create_sub_table(&self, index:u16) ->Result<(),()>{
+	#[cfg(feature = "alloc")]
+	pub(in super::super) fn create_sub_table(&self, index:u16){
 		log::trace!("Creating sub table from Level:{} and index:{:x}",L::get_level().get_Level(),index);
-		if let Some(sts)=unsafe{&crate::ST}{
-			log::trace!("We are still in a UEFI environment. We can proceed, to simply use the UEFI allocator.");
-			let a = sts.boot_services().allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1);
-			if a.is_err(){
-				log::error!("Could not create subtable. The UEFI-allocator said no.");
-				return Err(())
-			}
-			log::trace!("We got an allocation. Proceeding to create a PageTable at that address.");
-			let a = a.unwrap();
-			unsafe {
-				PageTable::<L>::new_addr(a as *mut u8);
-			}
-			{
-				self[index as usize]
-					.set_addr(
-						PhysAddr::new(a),
-						PageTableFlags::PRESENT|PageTableFlags::WRITABLE
-					);
-			}
-		}else{
-			assert!(false,"No allocator present, to populate page-table. I have yet to write code for this case.")
+		let a = unsafe{alloc::alloc::alloc(Layout::new::<PageTable<L::Down>>())};
+		unsafe {
+			PageTable::<L>::new_addr(a);
 		}
-		Ok(())
+		self[index as usize]
+			.set_addr(
+				PhysAddr::new(a as u64),
+				PageTableFlags::PRESENT|PageTableFlags::WRITABLE
+			);
+		
+	}
+}
+
+pub(in super::super) fn from_pt<L:Level>(pt:&mut x86_64::structures::paging::PageTable)->PageTable<L>{
+	PageTable{
+		entries:AtomicPtr::new(pt as *mut x86_64::structures::paging::PageTable as *mut [PTEntry;512]),
+		phantom:PhantomData::<L>
 	}
 }
 
@@ -153,6 +155,7 @@ impl<L:Level> core::fmt::Debug for PageTable<L> {
 		Ok(())
 	}
 }
+
 impl<L:Level> IntoIterator for PageTable<L>{
 	type Item = *const PTEntry;
 	type IntoIter = PageTableIter;

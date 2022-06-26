@@ -1,7 +1,3 @@
-use alloc::alloc::handle_alloc_error;
-use alloc::boxed::Box;
-use alloc::rc::Rc;
-use alloc::sync::Arc;
 use core::alloc::{GlobalAlloc, Layout};
 use core::arch::asm;
 use core::cell::{Cell,RefCell};
@@ -12,22 +8,28 @@ use core::pin::Pin;
 use core::ptr::{NonNull, null_mut};
 use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use log::log;
-use uefi::table::boot::{AllocateType, MemoryType};
 use x86_64::PhysAddr;
 use x86_64::registers::control::Cr3Flags;
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags, PhysFrame, Size4KiB};
 use x86_64::structures::paging::page_table::PageTableEntry;
-use crate::x64::cpuid::pml5_avilable;
-use crate::x64::paging::page_structs::entry::PTEntry;
-use crate::x64::paging::page_structs::table::PageTable;
-use crate::x64::paging::traits::{Level, Level1, Level2, Level3, Level4, Level5};
+use crate::cpuid::pml5_avilable;
+use crate::paging::page_structs::entry::PTEntry;
+use crate::paging::page_structs::table::PageTable;
+use crate::paging::traits::{Level, Level1, Level2, Level3, Level4, Level5};
 use super::traits::{LevelTable,LevelEnum};
 
-mod entry;
-mod table;
-mod mem;
+pub mod entry;
+pub mod table;
+pub mod mem;
 
 
+struct MemRegion{
+	start:u64,
+	size:usize,
+}
+static mut TOTAL_MEM_M:u64 = 0;
+static TOTAL_MEM:&u64=unsafe{&TOTAL_MEM_M };
+/*
 lazy_static::lazy_static!(
 	static ref TOTAL_MEM:u64 = crate::efi::mem::get_mem().unwrap().1;
 	static ref MEM_TRACER:AtomicPtr<mem::MemTracer>=unsafe{
@@ -112,10 +114,6 @@ pub fn load_page_table(){
 	log::trace!("Loaded Page Map")
 }
 
-struct MemRegion{
-	start:u64,
-	size:usize,
-}
 struct Allocate<MT:Deref<Target=AtomicPtr<mem::MemTracer>>+'static,PT:Deref<Target=PageTable<Level4>>+'static>{
 	mem:&'static MT,
 	pt:&'static PT,
@@ -338,3 +336,4 @@ unsafe impl<MT:Deref<Target=AtomicPtr<mem::MemTracer>>+'static,PT:Deref<Target=P
 		(*(**self.mem).load(Ordering::Acquire)).free_region(MemRegion{start:addr,size});
 	}
 }
+*/

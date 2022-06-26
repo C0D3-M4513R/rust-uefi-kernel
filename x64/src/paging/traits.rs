@@ -1,8 +1,9 @@
+use core::any::{Any, TypeId};
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::ffi::c_void;
-use core::hint::unreachable_unchecked;
-use crate::x64::cpuid::pml5_avilable;
+use core::iter::Rev;
+use core::ops::{Range, RangeInclusive};
 
 #[derive(Copy, Clone,Debug)]
 pub enum LevelEnum {
@@ -15,50 +16,55 @@ pub enum LevelEnum {
 
 ///This trait represents all Page Levels that exist.
 pub trait Level{
-	fn get_level()->LevelEnum;
-}
-impl<L:Level> From<L> for LevelEnum{
-	fn from(_:L) -> LevelEnum{
-		L::get_level()
-	}
+	fn get_level()->LevelEnum where Self: Sized;
 }
 ///This trait represents all Page Levels, where it is appropriate, to have a Page Table
 pub trait LevelTable:Level{
 	type Down:Level;
+	
 }
-pub(super) enum Level1{}
+pub enum Level1{}
 impl Level for Level1{
-	fn get_level() -> LevelEnum { LevelEnum::Level1 }
+	fn get_level() -> LevelEnum {
+		LevelEnum::Level1
+	}
 }
-pub(super) enum Level2{}
+pub enum Level2{}
 impl Level for Level2{
-	fn get_level() -> LevelEnum { LevelEnum::Level2 }
+	fn get_level() -> LevelEnum {
+		LevelEnum::Level2
+	}
 }
 impl LevelTable for Level2{
 	type Down = Level1;
 }
-pub(super) enum Level3{}
+pub enum Level3{}
 impl Level for Level3 {
-	fn get_level() -> LevelEnum { LevelEnum::Level3 }
+	fn get_level() -> LevelEnum {
+		LevelEnum::Level3
+	}
 }
 impl LevelTable for Level3{
 	type Down = Level2;
 }
-pub(super) enum Level4{}
+pub enum Level4{}
 impl Level for Level4{
-	fn get_level() -> LevelEnum { LevelEnum::Level4 }
+	fn get_level() -> LevelEnum {
+		LevelEnum::Level4
+	}
 }
 impl LevelTable for Level4{
 	type Down = Level3;
 }
-pub(super) enum Level5{}
+pub enum Level5{}
 impl Level for Level5{
-	fn get_level() -> LevelEnum { LevelEnum::Level5 }
+	fn get_level() -> LevelEnum {
+		LevelEnum::Level5
+	}
 }
 impl LevelTable for Level5{
 	type Down = Level4;
 }
-
 
 impl LevelEnum {
 	///Constructs a Level enum from a number, if possible

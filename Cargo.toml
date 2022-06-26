@@ -1,3 +1,3 @@
 [workspace]
-members=["log-impl","uefi-bin"]
+members=["log-impl","uefi-bin","bd","kernel","x64"]
 exclude=["normal"]

@@ -1,9 +1,8 @@
+use core::alloc::Layout;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use log::trace;
-use uefi::table::boot::{AllocateType, MemoryType};
-use crate::x64::paging::page_structs::{MemRegion, TOTAL_MEM};
-
+use super::{TOTAL_MEM,MemRegion};
 //leave space for the flink ref
 const SIZE:u64=4032;
 const K4:usize=0xFFF;
@@ -22,7 +21,7 @@ impl MemTracer{
 	///addr MUST be aligned to 4096 bits, as defined by repr
 	pub(super) unsafe fn new_addr(addr:*mut u8)->*mut Self{
 		const FALSE:AtomicBool=AtomicBool::new(false);
-		trace!("size of Atomic Bool: {}",core::mem::size_of_val(&FALSE) as u32 );
+		log::trace!("size of Atomic Bool: {}",core::mem::size_of_val(&FALSE) as u32 );
 		let addr=addr as *mut MemTracer;
 		*addr=MemTracer{mem:[FALSE;SIZE as usize],flink:AtomicPtr::new(core::ptr::null_mut())};
 		// log::trace!("Wrote the Array, getting MemTracer.");
@@ -74,11 +73,11 @@ impl MemTracer{
 		if addr&(K4 as u64)!=0{
 			log::warn!("mark_as_used called with address {:#x?}. That is not aligned to 4096, and thus likely not a page address. Continuing anyways. {}",addr,addr&(K4 as u64));
 		}
-		self.mark_as_used_i(addr>>12)
+		self.mark_as_used_i(addr>>12,0)
 	}
 	///Marks a particular address as used.
 	///An address here is address>>12.
-	fn mark_as_used_i(&self,page_addr:u64)->Option<()>{
+	fn mark_as_used_i(&self,page_addr:u64, n:u64)->Option<()>{
 		// log::trace!("Marking page {:#x} as used",page_addr);
 		if page_addr<SIZE{
 			// log::trace!("Found correct MemTracer section");
@@ -87,23 +86,22 @@ impl MemTracer{
 		}else{
 			let mut flink=self.flink.load(Ordering::SeqCst);
 			if flink.is_null() {
-				if let Some(st)=unsafe{&mut crate::ST}{
-					let addr=st.boot_services().allocate_pages(AllocateType::AnyPages,MemoryType::LOADER_DATA,1);
-					if addr.is_err(){
-						log::error!("alloc is err");
-					}
-					let addr=addr.ok()?;
-					unsafe {
-						let mut mt=MemTracer::new_addr(addr as *mut u8);
+				#[cfg(feature = "alloc")]
+				{
+					let addr=unsafe{alloc::alloc::alloc(Layout::new::<MemTracer>())};
+					{
+						let mut mt=unsafe{MemTracer::new_addr(addr as *mut u8)};
 						self.flink.store(mt, Ordering::SeqCst);
 						flink=mt;
 					}
-				}else{
+				}
+				#[cfg(not(feature = "alloc"))]
+				{
 					return None;
 				}
 			}
 			unsafe{
-				(*flink).mark_as_used_i(page_addr-SIZE)
+				(*flink).mark_as_used_i(page_addr-SIZE,n+1)
 			}
 		}
 	}
