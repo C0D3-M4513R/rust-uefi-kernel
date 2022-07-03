@@ -1,9 +1,6 @@
-use core::arch::x86_64::{__cpuid, __cpuid_count, has_cpuid};
+use core::arch::x86_64::{__cpuid, has_cpuid};
 use core::ops::{BitAnd, BitOr};
-use x86_64::instructions::tables::lgdt;
-use x86_64::registers::rflags;
 use x86_64::registers::control::{Cr0, Cr0Flags, Efer, EferFlags};
-use x86_64::registers::rflags::RFlags;
 //This file copies asm code largely from there:
 //https://wiki.osdev.org/Setting_Up_Long_Mode
 //Thanks!

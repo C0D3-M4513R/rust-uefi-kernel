@@ -1,15 +1,14 @@
 pub mod traits;
 mod page_structs;
 
-use core::any::{Any, TypeId};
 use core::marker::PhantomData;
-use core::ops::{Index, IndexMut};
+use core::ops::IndexMut;
 use x86_64::structures::paging::page_table::PageTableEntry;
 use x86_64::structures::paging::PageTable;
 use crate::paging::traits::*;
 
 pub fn get_page_walker<'a>()->Option<Result<PageWalker<'a,Level5>,PageWalker<'a,Level4>>>{
-	let (frame,flags)=x86_64::registers::control::Cr3::read();
+	let (frame,_flags)=x86_64::registers::control::Cr3::read();
 	let addr_p=frame.start_address().as_u64() as *mut PageTable;
 	
 	if addr_p.is_null(){return None};
@@ -38,7 +37,7 @@ impl<'a,L:LevelTable> PageWalker<'a,L>{
 	pub fn get_page<'b>(&'b mut self,addr:u64)->Result<PageWalker<'a,L::Down>,(u8,&'b mut Self)>
 	where 'a:'b{
 		// |o:&'a PageWalker<'a,L>,addr:u64|->Result<&mut PageTableEntry,(u8,&'a PageWalker<'a,L>)>{
-		self.index::<L::Down>(((addr>>12>>(L::get_level().get_Level()-1)*9)&512) as usize).ok_or((L::get_level().get_Level(),self))
+		self.index::<L::Down>(((addr>>12>>(L::get_level().get_level()-1)*9)&512) as usize).ok_or((L::get_level().get_level(), self))
 		// }
 	}
 	
@@ -50,16 +49,19 @@ impl<'a,L:LevelTable> PageWalker<'a,L>{
 					page_structs::table::from_pt::<L>(s.addr).create_sub_table(((addr>>12>>(l-1)*9)&512) as u16);
 					s.get_page(addr)
 				}
-			).map_err(|(l,s)|l)
+			).map_err(|(l,_)|l)
 	}
 	
 	///## Safety:
 	/// L1 needs to be equal to L::Down
 	fn index<L1:Level>(&mut self, index: usize) -> Option<PageWalker<'a,L1>> {
-		let pte=unsafe{(*self.addr).index_mut(index)};
+		let pte=(*self.addr).index_mut(index);
 		if pte.is_unused() || pte.addr().is_null(){
 			None
 		}else{
+			//Safety:
+			// Must be upheld by the one setting this value.
+			// Stuff out of our control will happen, if this is not a PageTable.
 			Some(PageWalker{addr:unsafe{&mut *(pte.addr().as_u64() as *mut PageTable)},level:PhantomData::<L1>})
 		}
 	}

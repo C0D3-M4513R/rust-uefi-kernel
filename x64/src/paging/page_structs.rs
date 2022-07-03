@@ -1,22 +1,3 @@
-use core::alloc::{GlobalAlloc, Layout};
-use core::arch::asm;
-use core::cell::{Cell,RefCell};
-use core::cmp::min;
-use core::marker::PhantomData;
-use core::ops::{Deref, Index, IndexMut};
-use core::pin::Pin;
-use core::ptr::{NonNull, null_mut};
-use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use log::log;
-use x86_64::PhysAddr;
-use x86_64::registers::control::Cr3Flags;
-use x86_64::structures::paging::{FrameAllocator, PageTableFlags, PhysFrame, Size4KiB};
-use x86_64::structures::paging::page_table::PageTableEntry;
-use crate::cpuid::pml5_avilable;
-use crate::paging::page_structs::entry::PTEntry;
-use crate::paging::page_structs::table::PageTable;
-use crate::paging::traits::{Level, Level1, Level2, Level3, Level4, Level5};
-use super::traits::{LevelTable,LevelEnum};
 
 pub mod entry;
 pub mod table;

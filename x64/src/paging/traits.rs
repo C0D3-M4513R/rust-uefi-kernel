@@ -1,9 +1,4 @@
-use core::any::{Any, TypeId};
 use core::cmp::Ordering;
-use core::convert::Infallible;
-use core::ffi::c_void;
-use core::iter::Rev;
-use core::ops::{Range, RangeInclusive};
 
 #[derive(Copy, Clone,Debug)]
 pub enum LevelEnum {
@@ -79,7 +74,7 @@ impl LevelEnum {
 		}
 	}
 	///Gets the Level as a number
-	pub fn get_Level(&self) ->u8{
+	pub fn get_level(&self) ->u8{
 		match self {
 			LevelEnum::Level5 => 5,
 			LevelEnum::Level4 => 4,
@@ -111,19 +106,19 @@ impl LevelEnum {
 }
 impl PartialEq for LevelEnum {
 	fn eq(&self, other: &Self) -> bool {
-		other.get_Level()==self.get_Level()
+		other.get_level()==self.get_level()
 	}
 }
 impl Eq for LevelEnum {}
 
 impl PartialOrd for LevelEnum {
 	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-		self.get_Level().partial_cmp(&other.get_Level())
+		self.get_level().partial_cmp(&other.get_level())
 	}
 }
 impl Ord for LevelEnum {
 	fn cmp(&self, other: &Self) -> Ordering {
-		self.get_Level().cmp(&other.get_Level())
+		self.get_level().cmp(&other.get_level())
 	}
 }
 impl Default for LevelEnum {

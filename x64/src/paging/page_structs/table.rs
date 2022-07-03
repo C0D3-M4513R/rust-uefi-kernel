@@ -32,10 +32,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
  */
 use core::alloc::Layout;
-use core::iter::{Chain, Cloned, Copied, Cycle, Enumerate, Filter, FilterMap, FlatMap, Flatten, Fuse, FusedIterator, Inspect, Map, MapWhile, Peekable, Product, Rev, Scan, Skip, SkipWhile, StepBy, Sum, Take, TakeWhile, Zip};
+use core::iter::FusedIterator;
 use core::marker::PhantomData;
-use core::ops::{Index, IndexMut};
-use core::sync::atomic::{AtomicPtr, compiler_fence, Ordering};
+use core::ops::Index;
+use core::sync::atomic::{AtomicPtr, Ordering};
 use x86_64::PhysAddr;
 use x86_64::structures::paging::{PageTableFlags, PageTableIndex};
 use super::super::traits::{Level, LevelTable};
@@ -73,7 +73,7 @@ impl<L:LevelTable> PageTable<L>{
 	}
 	#[cfg(feature = "alloc")]
 	pub(in super::super) fn create_sub_table(&self, index:u16){
-		log::trace!("Creating sub table from Level:{} and index:{:x}",L::get_level().get_Level(),index);
+		log::trace!("Creating sub table from Level:{} and index:{:x}",L::get_level().get_level(),index);
 		let a = unsafe{alloc::alloc::alloc(Layout::new::<PageTable<L::Down>>())};
 		unsafe {
 			PageTable::<L>::new_addr(a);
@@ -102,7 +102,7 @@ impl<L:Level> PageTable<L> {
 	///addr MUST be aligned to 4096 bits, as defined by repr
 	pub(super) unsafe fn new_addr(addr:*mut u8)->Self{
 		const ENTRY:PTEntry=PTEntry::new();
-		let mut addr=addr as *mut PTEntry as *mut [PTEntry;ENTRY_COUNT];
+		let addr=addr as *mut PTEntry as *mut [PTEntry;ENTRY_COUNT];
 		core::ptr::write(addr,[ENTRY;ENTRY_COUNT]);
 		let mem=AtomicPtr::new(addr);
 		log::trace!("Wrote the Array, returning PageTable Struct");

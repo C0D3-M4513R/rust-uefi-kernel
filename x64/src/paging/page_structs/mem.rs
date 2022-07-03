@@ -1,7 +1,5 @@
 use core::alloc::Layout;
-use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use log::trace;
 use super::{TOTAL_MEM,MemRegion};
 //leave space for the flink ref
 const SIZE:u64=4032;
@@ -90,7 +88,7 @@ impl MemTracer{
 				{
 					let addr=unsafe{alloc::alloc::alloc(Layout::new::<MemTracer>())};
 					{
-						let mut mt=unsafe{MemTracer::new_addr(addr as *mut u8)};
+						let mt=unsafe{MemTracer::new_addr(addr as *mut u8)};
 						self.flink.store(mt, Ordering::SeqCst);
 						flink=mt;
 					}

@@ -1,0 +1,5 @@
+Currently ALL Contents of this Repo belong to C0D3 M4513R.
+
+Exceptions to this rule are as follows:
+1. There is a "LICENSE" file in the same Directory. Any LICENSE file in a subdirectory FULLY OVERRIDES other LICENSE files present in other higher directories.
+2. If there is a License notice at the top of a File, that File specifically licensed under that license. This rule takes priority over the previous one.

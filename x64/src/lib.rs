@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unused)]
 //
 // this is required because of https://github.com/rust-lang/rust/issues/98253
 #![feature(stdsimd)]
