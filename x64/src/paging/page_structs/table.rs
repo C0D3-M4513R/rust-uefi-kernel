@@ -38,6 +38,7 @@ use core::ops::Index;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use x86_64::PhysAddr;
 use x86_64::structures::paging::{PageTableFlags, PageTableIndex};
+use crate::palloc::PhysicalPageAllocator;
 use super::super::traits::{Level, LevelTable};
 use super::entry::PTEntry;
 
@@ -71,6 +72,7 @@ impl<L:LevelTable> PageTable<L>{
 	pub(super) fn get_addr(&self)->*const (){
 		self.entries.load(Ordering::SeqCst) as *const [PTEntry;ENTRY_COUNT] as *const ()
 	}
+
 	#[cfg(feature = "alloc")]
 	pub(in super::super) fn create_sub_table(&self, index:u16){
 		log::trace!("Creating sub table from Level:{} and index:{:x}",L::get_level().get_level(),index);
@@ -83,7 +85,26 @@ impl<L:LevelTable> PageTable<L>{
 				PhysAddr::new(a as u64),
 				PageTableFlags::PRESENT|PageTableFlags::WRITABLE
 			);
-		
+	}
+
+	pub fn get_free_pages_count(&self)->u16{
+		let mut count=0;
+		for i in 0..ENTRY_COUNT{
+			if self[i].is_unused(){
+				count+=1;
+			}
+		}
+		count
+	}//1FF FFFF C000
+
+	pub(super) fn get_free_entry(&self)->Option<(u16,&mut PTEntry)>{
+		let entries_arr = self.entries.load(Ordering::SeqCst);
+		for i in 0..(ENTRY_COUNT as u16){
+			if entries_arr[i].is_unused(){
+				return Some((i,&mut entries_arr[i]));
+			}
+		}
+		None
 	}
 }
 

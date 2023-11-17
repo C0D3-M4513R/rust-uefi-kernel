@@ -5,19 +5,13 @@ use x86_64::structures::paging::page_table::PageTableEntry;
 use x86_64::structures::paging::PageTableFlags;
 use x64::paging::PageWalker;
 use x64::paging::traits::Level4;
-
-pub struct MapElfRet<'a> {
-	elf:Elf<'a>,
-	base: *mut u8,
-	pages: usize,
-	entry_point: usize,
-}
+use kernel_efi::MapElfRet;
+use uefi::Result;
 
 ///maps a elf file to memory. Returns a base address, and the offset to the entry_point.
 ///Page table
-pub fn map_elf(file:&[u8],addr:*mut u8)->Result<MapElfRet,()>{
-	let elf=Elf::from_bytes(file).map_err(|_|())?;
-	let eh = elf.elf_header();
+pub fn map_elf(file:&[u8],addr:*mut u8)->Result<MapElfRet>{
+	let elf=Elf::from_bytes(file).map_err(|_|uefi::Status::COMPROMISED_DATA)?;
 	let mut i=0;
 	let mut size=0u64;
 	//this gets the totally needed size
@@ -34,7 +28,7 @@ pub fn map_elf(file:&[u8],addr:*mut u8)->Result<MapElfRet,()>{
 		i+=1;
 	}
 	let page_num=(size>>12) as usize;
-	let mem=unsafe{uefi_services::system_table().as_ref()}.boot_services().allocate_pages(AllocateType::AnyPages,MemoryType::LOADER_DATA,page_num).map_err(|_|())?;
+	let mem=unsafe{uefi_services::system_table().as_ref()}.boot_services().allocate_pages(AllocateType::AnyPages,MemoryType::LOADER_DATA,page_num)?;
 	let mem=mem as *mut u8;
 	{//copy data
 		let file = file as *const [u8] as *const u8;
@@ -58,7 +52,7 @@ pub fn map_elf(file:&[u8],addr:*mut u8)->Result<MapElfRet,()>{
 	
 	set_pt_attr(&elf,mem,addr);
 	let entry_point=elf.entry_point() as usize + addr as usize;
-	Ok(MapElfRet{elf,base:mem,pages:page_num,entry_point})
+	Ok(MapElfRet{base:mem,pages:page_num,entry_point})
 }
 
 #[inline]
@@ -82,20 +76,21 @@ fn set_pt_attr(elf:&Elf,mem:*mut u8,addr:*mut u8){
 	}
 }
 
+pub fn get_pte<F, O>(pw: &mut PageWalker<Level4>, addr:u64, f:F) -> core::result::Result<O, u8>
+where F:FnOnce(&mut PageTableEntry)->O{
+	let mut tmp=pw.create_pt(addr)?;
+	let mut tmp=tmp.create_pt(addr)?;
+	let mut tmp=tmp.create_pt(addr)?;
+	let mut tmp=tmp.create_pt(addr)?;
+	Ok(f(&mut tmp))
+}
+
 fn get_phy_pg(membase:u64,memmax:u64,addrbase:u64,addrmax:u64,_align:u64,flags:ProgramHeaderFlags)->Option<()>{
-	fn get_pte<F, O>(pw: &mut PageWalker<Level4>, addr:u64, f:F) ->Result<O, u8>
-	where F:FnOnce(&mut PageTableEntry)->O{
-		let mut tmp=pw.create_pt(addr)?;
-		let mut tmp=tmp.create_pt(addr)?;
-		let mut tmp=tmp.create_pt(addr)?;
-		let mut tmp=tmp.create_pt(addr)?;
-		Ok(f(tmp))
-	};
 	
 	//I assume here, that the kernel is not going to cover more than 512GiB (which is the size of a ptl5 entry).
 	let mut pw5;
 	let pw=match x64::paging::get_page_walker()?{
-		Ok(mut v)=>{pw5=v;pw5.create_pt(addrbase)},
+		Ok(v)=>{pw5=v;pw5.create_pt(addrbase)},
 		Err(v)=>Ok(v),
 	};
 	let mut pw=pw.unwrap();

@@ -1,0 +1,1 @@
+pub static IDT:x86_64::structures::idt::InterruptDescriptorTable = x86_64::structures::idt::InterruptDescriptorTable::new();

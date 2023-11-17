@@ -1,30 +1,37 @@
 #![no_main]
 #![no_std]
-#![feature(abi_efiapi)]
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
-#![cfg_attr(target_arch = "x86_64",feature(stdsimd))]
 #![allow(unused_imports)]
 //extern crate alloc;
-
+extern crate core;
 extern crate alloc;
 
+use core::ffi::c_void;
 use core::fmt::Write;
-use core::ptr::null;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::ops::Add;
+use core::ptr::{NonNull, null};
+use core::sync::atomic::{AtomicU64, compiler_fence, Ordering};
 use uefi::prelude::*;
-use uefi::table::boot::MemoryType;
-use x86_64::structures::paging::PageTable;
-//use uefi_services::system_table;
-
-const MS_TO_NS:u64=1_000_000;
+use uefi::table::boot::{AllocateType, MemoryType};
+use x86_64::PhysAddr;
+use x86_64::structures::paging::{PageTable, PageTableFlags};
+use x86_64::structures::paging::page_table::PageTableEntry;
+use kernel_efi::Args;
+use crate::efi::mem::get_mem;
 
 mod efi;
-//mod x64;
 //mod rust_lang;
 
 #[entry]
-fn main(_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
+fn entry(handle: Handle, system_table: SystemTable<Boot>) -> uefi::Status{
+    match main(handle,system_table) {
+        Ok(_)=>Status::SUCCESS,
+        Err(err)=>err.status(),
+    }
+}
+
+fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> uefi::Result {
     uefi_services::init(&mut system_table).unwrap();
     let system_table=unsafe{uefi_services::system_table().as_mut()};
     //This logger impl will be taken over by uefi-services
@@ -44,80 +51,186 @@ fn main(_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     }
     
+    let _kernel_args=system_table
+        .boot_services()
+        .allocate_pages(
+            AllocateType::Address(kernel_efi::ARGS_ADDR as u64),
+            MemoryType::LOADER_DATA,
+            1
+        )?;
+    
     log::info!("test");
     log::warn!("help");
     log::error!("halp");
-    
-   //x64::init();
-    
-    let map_file={
-        let elf_kernel_file=match efi::fs::load_kernel_file(){
-            Ok(v)=>v,
-            Err(_)=>return Status::ABORTED,
-        };
-        let map_file=match efi::fs::elf::map_elf(elf_kernel_file,kernel_efi::KERNEL_ADDR){
-            Ok(v)=>v,
-            Err(_)=>return Status::ABORTED,
-        };
-        if let Err(e)=system_table.boot_services().free_pages(elf_kernel_file as *const [u8] as *const u8 as u64,elf_kernel_file.len()>>12){
-            return e.status();
-        }
-        map_file
-    };
-    
-    log::error!("cr0: {:#x}",x86_64::registers::control::Cr0::read().bits());
-    log::error!("cr2: {:#x}",x86_64::registers::control::Cr2::read().as_u64());
-    let (frame,cr3)=x86_64::registers::control::Cr3::read();
-    let pt = frame.start_address().as_u64() as *mut u8 as *mut PageTable;
-    let pt_r=unsafe{&mut *pt};
-    let rpt=x86_64::structures::paging::RecursivePageTable::new(pt_r);
-    
+
+    let heap_size = get_mem(None)?.1;
+    let base_prt:u64;
+    let base_phys_prt:u64;
+    let prt_pages;
     {
-        let efi_config=uefi::table::SystemTable::config_table(system_table);
-        let mut acpi1=null();
-        let mut acpi2=null();
-        for e in efi_config{
-            if e.guid==uefi::table::cfg::ACPI_GUID{
-                acpi1=e.address;
-                log::warn!("Found ACPIv1 at {:#x}",acpi1 as usize);
-            }else if e.guid==uefi::table::cfg::ACPI2_GUID{
-                acpi2=e.address;
-                log::warn!("Found ACPIv2 at {:#x}",acpi2 as usize);
-            }
+        prt_pages = heap_size / 4096 / 4096; //a page holds 4096 bytes, and this is the amount of pages to allocate
+        base_phys_prt = system_table.boot_services().allocate_pages(
+            AllocateType::AnyPages,
+            MemoryType::LOADER_DATA,
+            prt_pages as usize
+        )?;
+        let base_addr = kernel_efi::ARGS_ADDR + core::mem::size_of::<kernel_efi::Args>();
+        let base_addr = base_addr + if base_addr%4096 = 0 {0} else {4096 - (base_addr % 4096)};
+        base_prt = base_addr;
+        for i in 0..prt_pages {
+
+            let mut pw5 ;
+            let mut pw = match x64::paging::get_page_walker(){
+                Ok(w) => {
+                    pw5 = w;
+                    pw5.create_pt(0 as u64).unwrap()
+                },
+                Err(w) => w,
+            };
+            efi::fs::elf::get_pte(
+                &mut pw,
+                base_addr as u64 + i as u64,
+                |x|
+                    x.set_addr(
+                        PhysAddr::new(addr),
+                        PageTableFlags::PRESENT|PageTableFlags::WRITABLE|PageTableFlags::NO_EXECUTE
+                    )
+            ).unwrap();
         }
-        let mut rsdp2:Option<efi::tables::rsdp::RSDP2>=None;
-        let mut rsdp:Option<efi::tables::rsdp::RSDP>=None;
-        //try initalising rsdp2
-        if !acpi2.is_null(){
-            let rsdpp = unsafe{ efi::tables::rsdp::RSDP2::from_ptr(acpi2)};
-            log::debug!("try rsdp2 init");
-            rsdp2=rsdpp.ok();
+        //zero the memory. There might be garbage in that memory, and we depend on that memory being initialized to 0
+        for i in 0..prt_pages*4096/64{
+            unsafe{core::ptr::write((base_addr as *mut u64).wrapping_offset(i as isize),0u64)};
         }
-        //let rsdp know about it too
-        if let Some(rsdp2k)=rsdp2{
-            log::info!("rsdp2 init success");
-            rsdp=Some(rsdp2k.rsdp)
+        set_bits(base_prt as *mut u64,(base_phys_prt / 4096) as usize,prt_pages as usize);
+        {
+            let offset = (base_phys_prt / 4096) as usize + prt_pages as usize;
+            if offset%4096!=0 {set_bits(base_prt as *mut u64,offset,4096-offset%4096);}
         }
-        //try initalising rsdp if acpi2 is not available, or rsdp2 has failed verification
-        if !rsdp2.is_some() && !rsdp.is_some() && !acpi1.is_null(){
-            rsdp=unsafe{efi::tables::rsdp::RSDP::from_ptr(acpi1)}.ok();
-            log::debug!("try rsdp1 init");
-        }
-        //panic, if nothing works
-        if !rsdp.is_some() && !rsdp2.is_some() {
-            panic!("Neither ACPIv2 nor ACPIv1 is available.")
-        }
-        log::warn!("rsdp2:{:#x?},rsdp1:{:#x?}",rsdp2,rsdp)
     }
     {
-        let mut rsp:u64 =0;
+        let map_file={
+            let elf_kernel_file=efi::fs::load_file(efi::fs::KERNEL_NAME)?;
+            let map_file=efi::fs::elf::map_elf(elf_kernel_file,kernel_efi::KERNEL_ADDR)?;
+            system_table.boot_services().free_pages(elf_kernel_file as *const [u8] as *const u8 as u64,(elf_kernel_file.len()>>12)+1)?;
+            map_file
+        };
+        set_bits(base_prt as *mut u64,map_file.base/4096,map_file.pages+3);
+        let ff ={
+            const FONT_FILE:&str = "font.ttf";
+            let f = efi::fs::load_file(FONT_FILE)?;
+            if let Some(nf)=kernel_efi::ttf_parser::fonts_in_collection(f){
+                if nf>1{
+                    kernel_efi::ttf_parser::Face::from_slice(f,0).unwrap()
+                }else {
+                    panic!();
+                }
+            }else{
+                system_table.boot_services().free_pages(f as *const [u8] as *const u8 as u64,(f.len()>>12)+1).unwrap();
+                panic!();
+            }
+        };
+        let mut pte = [core::ptr::null_mut();3];
+        //Mark kernel_efi::ARGS_ADDR as r,w,nx.
+        {
+            let s=core::mem::size_of::<kernel_efi::Args>();
+            let s= s>>12 + if s%4096!=0{1}else{0};
+            let mut pw5;
+            let mut pw=match x64::paging::get_page_walker().unwrap() {
+                Ok(w) => {
+                    pw5 = w;
+                    pw5.create_pt(kernel_efi::ARGS_ADDR as u64).unwrap()
+                },
+                Err(w) => w,
+            };
+            let elf_physical_page = system_table.
+                boot_services().
+                allocate_pages(
+                    AllocateType::AnyPages,
+                    MemoryType::LOADER_DATA,
+                    s+3
+                )?;
+            for i in 0..=s{
+                efi::fs::elf::get_pte(
+                    &mut pw,
+                    kernel_efi::ARGS_ADDR as u64 + i as u64,
+                    |x|
+                        x.set_addr(
+                            elf_physical_page.add(i*4096),
+                            PageTableFlags::PRESENT|PageTableFlags::WRITABLE|PageTableFlags::NO_EXECUTE
+                        )
+                ).unwrap()
+            }
+            for i in s+1..=s+3{
+                efi::fs::elf::get_pte(
+                    &mut pw,
+                    kernel_efi::ARGS_ADDR as u64 + i as u64,
+                    |x|{
+                        pte[i-s-1]=x as *mut PageTableEntry as *mut u64;
+                        x.set_addr(
+                            elf_physical_page.add(i*4096),
+                            PageTableFlags::PRESENT|PageTableFlags::WRITABLE|PageTableFlags::NO_EXECUTE
+                        )
+                    }
+                ).unwrap(
+                )
+            }
+        }
+        unsafe {
+            core::ptr::write_volatile(
+                kernel_efi::ARGS_ADDR,
+                 Args {
+                     elf: map_file,
+                     font: ff,
+                     gop: efi::gop::get_best_gop_fb(handle)?,
+                     heap_size,
+                     page_tracker_base: base_prt as *mut (),
+                     page_tracker_page_size: prt_pages as usize,
+                     page_table_entry: pte,
+                 }
+            );
+        }
+    }
+    {
+        let mut rsp:u64;
         unsafe{ core::arch::asm!("mov {0},rsp",lateout(reg) rsp,options(nomem,preserves_flags,nostack))};
         log::info!("rip is:{:#x?}",rsp)
     }
     loop{
+        core::hint::spin_loop();
         #[cfg(target_arch="x86_64")]
         x86_64::instructions::hlt();
     }
     #[allow(unreachable_code)]
-    Status::SUCCESS
+    Ok(())
+}
+
+fn set_bits(base_ptr:*mut u64, offset:usize, size:usize){
+    {
+        let mut prt_offset = offset; //map_file.base as u64 / 4096;
+        let mut size = size;//map_file.pages;
+        if prt_offset%64 != 0 {
+            let offset = prt_offset % 64;
+            let bits_available = 64 - offset;
+            let bits_to_set =
+                //mask all bits before the first bit to set
+                (!(u64::MAX<<bits_available))&
+                    //mask all bits after the potentially last bit to set
+                    (!(u64::MAX<< if size > bits_available as usize {0} else {size}));
+            //this should set size or bits_available bits to 1 (whichever is less), starting at offset
+            prt_offset/=64;
+            unsafe {
+                core::ptr::write_volatile((base_ptr as *mut u64).wrapping_offset(prt_offset as isize), bits_to_set);
+            }
+            prt_offset+=1;
+            size-=bits_to_set.count_ones() as usize;
+        };
+        while size >= 64 {
+            unsafe{core::ptr::write_volatile((base_ptr as *mut u64).wrapping_offset(prt_offset as isize), u64::MAX)}
+            prt_offset+=1;
+            size-=64;
+        }
+        unsafe {
+            core::ptr::write_volatile((base_ptr as *mut u64).wrapping_offset(prt_offset as isize), !(u64::MAX << 64-size));
+        }
+    }
 }

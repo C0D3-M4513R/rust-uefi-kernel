@@ -12,11 +12,16 @@ pub enum LevelEnum {
 ///This trait represents all Page Levels that exist.
 pub trait Level{
 	fn get_level()->LevelEnum where Self: Sized;
+	fn is_level_table()->bool{
+		false
+	}
 }
 ///This trait represents all Page Levels, where it is appropriate, to have a Page Table
 pub trait LevelTable:Level{
 	type Down:Level;
-	
+	fn is_level_table()->bool{
+		true
+	}
 }
 pub enum Level1{}
 impl Level for Level1{

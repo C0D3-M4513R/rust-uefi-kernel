@@ -3,8 +3,8 @@
 //
 // this is required because of https://github.com/rust-lang/rust/issues/98253
 #![feature(stdsimd)]
+extern crate alloc;
+
 pub mod paging;
 pub mod cpuid;
-
-#[cfg(feature = "alloc")]
-extern crate alloc;
+pub mod palloc;

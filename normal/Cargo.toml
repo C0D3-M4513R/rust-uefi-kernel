@@ -1,11 +1,10 @@
 [package]
-name = "kernel-efi"
+name = "normal"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-elf_rs = "0.3"
-ttf-parser={version="0.15",default-features = false}
-uefi = "0.20"
+ttf-parser="0.15"
+
